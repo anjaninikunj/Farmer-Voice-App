@@ -8,7 +8,7 @@ export default defineConfig({
     host: '0.0.0.0',   // expose to all network interfaces so phone can connect
     proxy: {
       '/api': {
-        target: 'http://10.86.11.148:3000',  // your laptop IP
+        target: 'http://localhost:3000',  // backend dev URL 
         changeOrigin: true,
       },
     },

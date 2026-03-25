@@ -17,8 +17,8 @@ import { CapacitorHttp } from '@capacitor/core'
 // so we must use the full backend IP address directly.
 // When running in browser dev mode, we use relative /api (proxied by Vite).
 const isCapacitor = window.location.protocol === 'capacitor:' || window.Capacitor !== undefined
-// In production (Cloud/Capacitor), use your Render URL (e.g., https://your-app.onrender.com)
-const CLOUD_URL = 'https://YOUR_BACKEND_URL.onrender.com' 
+// In production (Cloud/Capacitor), use your Render URL.
+const CLOUD_URL = 'https://farmer-voice-app.onrender.com' 
 const API_BASE = isCapacitor ? CLOUD_URL : ''
 
 const categoryIcon = (cat) => {
