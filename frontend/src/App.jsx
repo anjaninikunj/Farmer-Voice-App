@@ -64,7 +64,15 @@ function VoicePage() {
   const [result, setResult] = useState(null)
   const [status, setStatus] = useState('idle') // idle | recording | processing | success | error
   const [errMsg, setErrMsg] = useState('')
+  const [farms, setFarms] = useState([])
+  const [manualFarmId, setManualFarmId] = useState('')
   const recognitionRef = useRef(null)
+
+  useEffect(() => {
+    // Fetch farms for the dropdown
+    axios.get(`${API_BASE}/api/farms`).then(({ data }) => setFarms(data)).catch(() => {})
+  }, [])
+
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
 
@@ -186,7 +194,13 @@ function VoicePage() {
         }
       }
       
+      if (manualFarmId) {
+        data.farm_name = manualFarmId;
+        data.notes = (data.notes || '') + ' (Farm set manually)';
+      }
+      
       setResult(data)
+
       setStatus('review') // Wait for user to confirm before saving!
     } catch (err) {
       setErrMsg(err.message || String(err))
@@ -232,7 +246,25 @@ function VoicePage() {
         <p className="text-slate-400 text-sm mt-1">Speak in Gujarati to record expense</p>
       </div>
 
+      {/* Manual Farm Selector (New Feature) */}
+      <div className="glass rounded-2xl p-4 border border-white/5">
+        <label className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-2 block">
+          Select Farm (Optional Override)
+        </label>
+        <select 
+          value={manualFarmId}
+          onChange={(e) => setManualFarmId(e.target.value)}
+          className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+        >
+          <option value="">Detect Automatically 🎤</option>
+          {farms.map(f => (
+            <option key={f.id} value={f.name}>{f.name}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Big Mic Button */}
+
       <div className="flex flex-col items-center gap-4 py-6">
         <button
           onClick={recording ? stopRecording : startRecording}
@@ -354,13 +386,30 @@ function DashboardPage() {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedFarm, setSelectedFarm] = useState('All')
+  const [seasons, setSeasons] = useState([])
 
   useEffect(() => {
+    refreshData()
+  }, [])
+
+  const refreshData = () => {
     axios.get(`${API_BASE}/api/expenses`).then(({ data }) => {
       setExpenses(Array.isArray(data) ? data : (data.data || []))
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [])
+
+    axios.get(`${API_BASE}/api/seasons`).then(({ data }) => {
+      setSeasons(data)
+    }).catch(() => {})
+  }
+
+  const handleSetSeason = async (id) => {
+    try {
+      await axios.post(`${API_BASE}/api/seasons/set-active`, { id })
+      refreshData()
+    } catch (e) { alert("Failed to change season") }
+  }
+
 
   const filteredExpenses = selectedFarm === 'All' 
     ? expenses 
@@ -405,16 +454,26 @@ function DashboardPage() {
 
       {/* Season Selector */}
       <div className="flex justify-between gap-2 overflow-x-auto no-scrollbar scroll-smooth relative z-10">
-        <button className="flex-1 py-1.5 px-2 rounded-full border border-emerald-400/60 bg-white/10 shadow-[0_0_15px_rgba(52,211,153,0.3)] flex justify-center items-center gap-2 backdrop-blur-sm">
-          <Snowflake size={14} className="text-blue-300" /> <span className="text-sm font-semibold text-white">શિયાળો</span>
-        </button>
-        <button className="flex-1 py-1.5 px-2 rounded-full border border-transparent bg-white/5 flex justify-center items-center gap-2 text-white/50">
-          <Sun size={14} className="text-yellow-400 opacity-60" /> <span className="text-sm font-medium">ઉનાળો</span>
-        </button>
-        <button className="flex-1 py-1.5 px-2 rounded-full border border-transparent bg-white/5 flex justify-center items-center gap-2 text-white/50">
-          <CloudRain size={14} className="text-white/70 opacity-60" /> <span className="text-sm font-medium">ચોમાસું</span>
-        </button>
+        {seasons.map(s => (
+          <button 
+            key={s.id}
+            onClick={() => handleSetSeason(s.id)}
+            className={`flex-1 py-1.5 px-2 rounded-full border flex justify-center items-center gap-2 transition-all ${
+              s.is_active 
+              ? 'border-emerald-400/60 bg-white/10 shadow-[0_0_15px_rgba(52,211,153,0.3)] text-white' 
+              : 'border-transparent bg-white/5 text-white/40'
+            }`}
+          >
+            {s.name === 'Winter' && <Snowflake size={14} className={s.is_active ? "text-blue-300" : "text-blue-300/40"} />}
+            {s.name === 'Summer' && <Sun size={14} className={s.is_active ? "text-yellow-400" : "text-yellow-400/40"} />}
+            {s.name === 'Monsoon' && <CloudRain size={14} className={s.is_active ? "text-white/70" : "text-white/20"} />}
+            <span className={`text-sm ${s.is_active ? 'font-semibold' : 'font-medium'}`}>
+              {s.name === 'Winter' ? 'શિયાળો' : s.name === 'Summer' ? 'ઉનાળો' : 'ચોમાસું'}
+            </span>
+          </button>
+        ))}
       </div>
+
 
       {/* Total Card */}
       <div className="rounded-3xl p-5 border border-white/10 flex justify-between items-end relative overflow-hidden bg-white/5 backdrop-blur-md">

@@ -80,3 +80,40 @@ exports.getAllExpenses = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+// --- Season Management ---
+exports.getSeasons = async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM seasons ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+exports.setActiveSeason = async (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'Season ID is required' });
+  
+  try {
+    await db.query('BEGIN');
+    await db.query('UPDATE seasons SET is_active = false');
+    await db.query('UPDATE seasons SET is_active = true WHERE id = $1', [id]);
+    await db.query('COMMIT');
+    res.json({ success: true, message: `Season ${id} set as active` });
+  } catch (e) {
+    await db.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  }
+};
+
+// --- Farm Management ---
+exports.getFarms = async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM farms ORDER BY name ASC');
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
