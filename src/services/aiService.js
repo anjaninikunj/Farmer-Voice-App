@@ -101,13 +101,19 @@ const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemin
     const numWords = Object.keys(numMap).join('|');
 
     // 1. Detect raw farm name (English or Gujarati)
-    const farmMatch = normalizedText.match(/(Ambe|Nikunj|Jadeve|Jadevere|Jada|Mohanbhai|Vadi|જાડેવે|જાડા|જાડો|મોહનભાઈ|જાડાવરે|જાદવ|જાડેવારે|અંબે|નિકુંજ|જાદવરે)/i);
+    // NOTE: નિકુલ / નિકૂલ / Nikul are common speech variants of Nikunj
+    const farmMatch = normalizedText.match(/(Ambe|Nikunj|Nikul|Jadeve|Jadevere|Jada|Mohanbhai|Vadi|જાડેવે|જાડા|જાડો|મોહનભાઈ|જાડાવરે|જાદવ|જાડેવારે|અંબે|નિકુંજ|નિકુલ|નિકૂલ|વારા|જાદવરે)/i);
     const rawFarm = farmMatch ? farmMatch[0] : "General Farm";
     
     // 2. Map Gujarati names to official Database names (English)
     const farmMap = {
         'નિકુંજ': 'Nikunj Farm',
+        'નિકુલ':  'Nikunj Farm',   // speech variant
+        'નિકૂલ':  'Nikunj Farm',   // speech variant
         'Nikunj': 'Nikunj Farm',
+        'Nikul':  'Nikunj Farm',   // speech variant
+        'વારા':   'Nikunj Farm',   // speech variant
+        'સાંપડ':  'Nikunj Farm',   // speech variant
         'અંબે': 'Ambe Farm',
         'Ambe': 'Ambe Farm',
         'જાદવ': 'Jadav Farm',
@@ -165,15 +171,45 @@ const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemin
     }
 
     // Fertilizer check
-    if (normalizedText.includes('uriya') || normalizedText.includes('urea') || normalizedText.includes('khatar') || normalizedText.includes('યુરિયા') || normalizedText.includes('એમપીકે') || normalizedText.includes('ખાતર') || normalizedText.includes('ડીએપી')) {
+    const hasUrea = normalizedText.includes('uriya') || normalizedText.includes('urea') || normalizedText.includes('યુરિયા');
+    const hasNPK  = normalizedText.includes('એમપીકે') || normalizedText.includes('npk') || normalizedText.includes('NPK');
+    const hasDAP  = normalizedText.includes('ડીએપી') || normalizedText.includes('dap');
+    const hasFertilizer = hasUrea || hasNPK || hasDAP || normalizedText.includes('khatar') || normalizedText.includes('ખાતર');
+
+    if (hasFertilizer) {
         data.category = 'Fertilizer';
-        data.item_name = (normalizedText.includes('uriya') || normalizedText.includes('urea') || normalizedText.includes('યુરિયા')) ? 'Urea' : 
-                         (normalizedText.includes('એમપીકે') || normalizedText.includes('npk')) ? 'NPK' : 'Fertilizer';
-        
-        const bagMatch = normalizedText.match(new RegExp(`(\\d+|${numWords})\\s*(bag|thela|sack|bori|થેલા|બોરી|ગુણ|થેલી)`, 'i'));
+
+        // Determine item name — handle BOTH NPK + Urea in same sentence
+        if (hasNPK && hasUrea) data.item_name = 'NPK, Urea';
+        else if (hasNPK)  data.item_name = 'NPK';
+        else if (hasUrea) data.item_name = 'Urea';
+        else if (hasDAP)  data.item_name = 'DAP';
+        else data.item_name = 'Fertilizer';
+
+        // --- Bag count detection (Priority 1): explicit bag/sack word ---
+        const bagMatch = normalizedText.match(new RegExp(`(\\d+|${numWords})\\s*(bag|thela|sack|bori|gun|theli|થેલા|બોરી|ગુણ|થેલી)`, 'i'));
         if (bagMatch) {
             data.bag_count = parseInt(bagMatch[1]) || numMap[bagMatch[1]] || 0;
             data.payout_model = 'Per-Bag';
+        } else {
+            // --- Bag count detection (Priority 2): "N npk ane M urea" pattern ---
+            // e.g. "4 એમપીકે અને ચાર યુરિયા" → bag_count = 4 + 4 = 8
+            const fertilizerTerms = 'npk|urea|uriya|NPK|એમપીકે|યુરિયા|ડીએપી|dap|khatar|ખાતર';
+            const multiBagPattern = new RegExp(`(\\d+|${numWords})\\s*(?:${fertilizerTerms})`, 'gi');
+            let totalBags = 0;
+            let bagMatches = [];
+            let m;
+            multiBagPattern.lastIndex = 0;
+            while ((m = multiBagPattern.exec(normalizedText)) !== null) {
+                const cnt = parseInt(m[1]) || numMap[m[1]] || 0;
+                if (cnt > 0) {
+                    totalBags += cnt;
+                }
+            }
+            if (totalBags > 0) {
+                data.bag_count = totalBags;
+                data.payout_model = 'Per-Bag';
+            }
         }
     } 
     
