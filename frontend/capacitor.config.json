@@ -1,0 +1,9 @@
+{
+  "appId": "com.farmervoice.app",
+  "appName": "Farmer Voice",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}
