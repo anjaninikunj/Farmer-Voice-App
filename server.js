@@ -30,8 +30,7 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => res.json({ status: 'OK', uptime: process.uptime() }));
 
 app.listen(port, '0.0.0.0', () => {
-  console.log(`--- Farmer Voice Backend is Running ---`);
-  console.log(`Port: ${port}`);
-  console.log(`Network: http://10.146.186.148:${port}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'Development'}`);
+  console.log(`--- Farmer Voice Backend Is Active ---`);
+  console.log(`Running on Port: ${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'Production'}`);
 });
