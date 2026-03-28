@@ -9,6 +9,8 @@ router.post('/save-record', controller.saveRecord);
 // Reporting Endpoints
 router.get('/reports/seasonal', controller.getSeasonalReport);
 router.get('/expenses', controller.getAllExpenses);
+router.put('/expenses/:id', controller.updateExpense);
+router.delete('/expenses/:id', controller.deleteExpense);
 
 // Management
 router.get('/seasons', controller.getSeasons);

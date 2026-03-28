@@ -116,4 +116,33 @@ exports.getFarms = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+// --- Expense Management ---
+exports.updateExpense = async (req, res) => {
+  const { id } = req.params;
+  const d = req.body;
+  try {
+    const query = `
+      UPDATE expenses SET 
+        item_name = $1, 
+        total_amount = $2, 
+        notes = $3,
+        category = $4,
+        date = $5
+      WHERE id = $6 RETURNING *`;
+    const vals = [d.item_name, d.total_amount, d.notes, d.category, d.date, id];
+    const result = await db.query(query, vals);
+    res.json({ success: true, record: result.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
 
+exports.deleteExpense = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query('DELETE FROM expenses WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};

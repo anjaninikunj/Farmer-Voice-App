@@ -3,7 +3,8 @@ import axios from 'axios'
 import {
   Mic, MicOff, LayoutDashboard, ClipboardList, TrendingUp,
   Leaf, Tractor, Users, ShoppingBag, RefreshCw, CheckCircle, AlertCircle,
-  User, Settings, CloudRain, Sun, Snowflake, History, Plus, Home
+  User, Settings, CloudRain, Sun, Snowflake, History, Plus, Home,
+  Edit3, Trash2, Save, X, ChevronRight, Check, XCircle, Activity
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
@@ -60,6 +61,7 @@ function StatCard({ label, value, icon, color }) {
 // ---- VOICE PAGE ----
 function VoicePage() {
   const [recording, setRecording] = useState(false)
+  const recordingRef = useRef(false)
   const [transcript, setTranscript] = useState('')
   const [result, setResult] = useState(null)
   const [status, setStatus] = useState('idle') // idle | recording | processing | success | error
@@ -73,106 +75,76 @@ function VoicePage() {
     axios.get(`${API_BASE}/api/farms`).then(({ data }) => setFarms(data)).catch(() => {})
   }, [])
 
-
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-
   const startRecording = async () => {
-    const transcriptRef = { current: '' }
-
-    if (isCapacitor) {
-      try {
-        const hasPerms = await CapSpeech.checkPermissions()
-        if (hasPerms.speechRecognition !== 'granted') {
-          await CapSpeech.requestPermissions()
-        }
-
-        setRecording(true)
-        setStatus('recording')
-        setTranscript('')
-        setResult(null)
-
-        const result = await CapSpeech.start({
-          language: 'gu-IN',
-          maxResults: 1,
-          prompt: 'Speak in Gujarati',
-          popup: true,
-          partialResults: false,
-        })
-
-        setRecording(false)
-        if (result && result.matches && result.matches.length > 0) {
-          const text = result.matches[0]
-          setTranscript(text)
-          submitTranscript(text)
-        } else {
-          setStatus('idle')
-        }
-      } catch (err) {
-        setRecording(false)
-        setStatus('error')
-        setErrMsg(String(err))
-      }
-      return
-    }
-
+    // 1. Basic Setup
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setErrMsg('Your browser does not support voice recognition. Please use Chrome.')
-      setStatus('error')
-      return
-    }
-    const recognition = new SpeechRecognition()
-    recognition.lang = 'gu-IN'
-    recognition.interimResults = true
-    recognition.continuous = true // CRITICAL: Listen until manually stopped
-    recognition.maxAlternatives = 1
-    
-    recognition.onstart = () => { 
-      setRecording(true); 
-      setStatus('recording'); 
-      setTranscript(''); 
-      setResult(null);
-    }
-    
-    recognition.onresult = (e) => {
-      // Collect all fragments (interim + final)
-      const t = Array.from(e.results)
-        .map(r => r[0].transcript)
-        .join('')
-      transcriptRef.current = t
-      setTranscript(t)
-    }
-    
-    recognition.onerror = (e) => { 
-      setStatus('error'); 
-      setErrMsg(e.error); 
-      setRecording(false);
-    }
-    
-    recognition.onend = () => { 
-      setRecording(false); 
-      // Only submit if we haven't already moved to processing (e.g. manual stop)
-      if (status !== 'processing' && transcriptRef.current.trim().length > 0) {
-        submitTranscript(transcriptRef.current) 
-      }
+      alert("This browser does not support Speech Recognition. Please use Chrome.");
+      return;
     }
 
-    recognitionRef.current = recognition
-    recognition.start()
-  }
+    if (navigator.vibrate) navigator.vibrate(50);
+    setTranscript('');
+    setStatus('recording');
+    setRecording(true);
+    recordingRef.current = true;
 
-  const stopRecording = async () => {
-    if (isCapacitor) {
-      try { await CapSpeech.stop() } catch (e) {}
+    // 2. Initialize Recognition Object if not exists
+    if (!recognitionRef.current) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'gu-IN';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event) => {
+        let fullTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          fullTranscript += event.results[i][0].transcript;
+        }
+        setTranscript(fullTranscript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech Error:", event.error);
+        if (event.error === 'not-allowed') {
+          alert("Permission Denied: Please enable microphone access.");
+          stopRecording();
+        }
+      };
+
+      recognition.onend = () => {
+        // Auto-restart if we haven't manually stopped
+        if (recordingRef.current) {
+          console.log("Auto-restarting mic for continuous mode...");
+          recognition.start();
+        }
+      };
+
+      recognitionRef.current = recognition;
+    }
+
+    try {
+      recognitionRef.current.start();
+    } catch (e) {
+      console.log("Mic already active or error starting.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (navigator.vibrate) navigator.vibrate(100);
+    recordingRef.current = false;
+    setRecording(false);
+    
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    
+    if (transcript.trim()) {
+      submitTranscript(transcript);
     } else {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop()
-      }
+      setStatus('idle');
     }
-    // Immediately trigger processing if we have text
-    if (transcript.trim().length > 0) {
-      submitTranscript(transcript)
-    }
-  }
+  };
 
   const submitTranscript = async (text) => {
     if (!text.trim()) return
@@ -293,35 +265,53 @@ function VoicePage() {
         </select>
       </div>
 
-      {/* Big Mic Button */}
-
-      <div className="flex flex-col items-center gap-4 py-6">
-        <button
+      {/* Mic Control */}
+      <div className="flex flex-col items-center gap-6 relative z-10 my-8">
+        <button 
           onClick={recording ? stopRecording : startRecording}
-          className={`w-28 h-28 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg
+          className={`w-36 h-36 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-2xl relative
             ${recording
               ? 'bg-red-500 animate-pulse ring-8 ring-red-500/20'
-              : 'bg-emerald-500 hover:bg-emerald-400 active:scale-95'}`}
+              : 'bg-emerald-500 hover:bg-emerald-400 active:scale-95 shadow-emerald-500/20'}`}
         >
-          {recording
-            ? <>
-                <MicOff size={44} className="text-white mb-1" />
-                <span className="text-[10px] font-bold text-white uppercase">DONE</span>
-              </>
-            : <Mic size={44} className="text-white" />}
+          {recording ? (
+            <div className="flex flex-col items-center gap-1 text-center">
+              <CheckCircle size={48} className="text-white drop-shadow-lg" />
+              <span className="text-[14px] font-black text-white uppercase tracking-wider">થઈ ગયું</span>
+            </div>
+          ) : (
+            <Mic size={48} className="text-white drop-shadow-lg" />
+          )}
+          
+          {recording && (
+            <div className="absolute -inset-4 border-2 border-red-500/30 rounded-full animate-[ping_1.5s_infinite] pointer-events-none" />
+          )}
         </button>
-        <p className="text-slate-400 text-sm font-medium">
-          {recording ? '🔴 Listening... speak fully' : 'Tap to start recording'}
-        </p>
+        
+        <div className="text-center">
+          <p className={`text-lg font-bold transition-all duration-500 ${recording ? 'text-red-400 scale-110' : 'text-slate-400'}`}>
+            {recording ? 'સાંભળે છે... (બધું જ બોલો)' : 'નોંધ કરવા માટે ટેપ કરો'}
+          </p>
+          {recording && (
+            <p className="text-[10px] text-white/40 uppercase mt-2 tracking-widest font-black animate-bounce">
+              બોલ્યા પછી લાલ બટન દબાવો
+            </p>
+          )}
+        </div>
       </div>
 
-      {/* Transcript box */}
-      {transcript && (
-        <div className="glass rounded-2xl p-4">
-          <p className="text-xs text-slate-400 mb-1">Heard:</p>
-          <p className="text-white leading-relaxed">{transcript}</p>
+      {/* Transcript Box */}
+      <div className={`glass rounded-3xl p-6 border transition-all duration-500 relative z-10
+        ${recording ? 'border-emerald-500/30 scale-102 bg-emerald-900/10' : 'border-white/5 opacity-80'}`}>
+        <div className="flex items-center gap-2 mb-3">
+          <Activity size={18} className={recording ? 'text-emerald-400 animate-pulse' : 'text-slate-500'} />
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">તમે બોલ્યા • YOU SAID</span>
         </div>
-      )}
+        <p className={`text-xl font-bold leading-relaxed min-h-[100px] transition-colors
+          ${recording ? 'text-white' : 'text-slate-400 italic'}`}>
+          {transcript || (recording ? 'બોલો, અમે સાંભળી રહ્યા છીએ...' : 'તમારી વાત અહીં દેખાશે...')}
+        </p>
+      </div>
 
       {/* Processing */}
       {status === 'processing' && (
@@ -426,12 +416,14 @@ function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [selectedFarm, setSelectedFarm] = useState('All')
   const [seasons, setSeasons] = useState([])
+  const [editingExpense, setEditingExpense] = useState(null)
 
   useEffect(() => {
     refreshData()
   }, [])
 
   const refreshData = () => {
+    setLoading(true)
     axios.get(`${API_BASE}/api/expenses`).then(({ data }) => {
       setExpenses(Array.isArray(data) ? data : (data.data || []))
       setLoading(false)
@@ -442,6 +434,22 @@ function DashboardPage() {
     }).catch(() => {})
   }
 
+  const handleDelete = async (id) => {
+    if (!window.confirm("ખરેખર આ નોંધ કાઢી નાખવી છે?")) return
+    try {
+      await axios.delete(`${API_BASE}/api/expenses/${id}`)
+      refreshData()
+    } catch (e) { alert("Delete failed") }
+  }
+
+  const handleUpdate = async (updatedData) => {
+    try {
+      await axios.put(`${API_BASE}/api/expenses/${updatedData.id}`, updatedData)
+      setEditingExpense(null)
+      refreshData()
+    } catch (e) { alert("Update failed") }
+  }
+
   const handleSetSeason = async (id) => {
     try {
       await axios.post(`${API_BASE}/api/seasons/set-active`, { id })
@@ -449,15 +457,22 @@ function DashboardPage() {
     } catch (e) { alert("Failed to change season") }
   }
 
-
   const filteredExpenses = selectedFarm === 'All' 
     ? expenses 
     : expenses.filter(e => e.farm_name === selectedFarm)
 
+  const sortedExpenses = [...filteredExpenses].sort((a,b) => 
+    new Date(b.created_at || b.date) - new Date(a.created_at || a.date)
+  )
+
   const total = filteredExpenses.reduce((s, e) => s + (parseFloat(e.total_amount) || 0), 0)
   const catTotal = (cat) => filteredExpenses.filter(e => e.category === cat).reduce((s, e) => s + (parseFloat(e.total_amount) || 0), 0)
 
-  // Get unique farm names for the filter
+  // Today Statistics
+  const todayStr = new Date().toLocaleDateString('en-CA')
+  const todayExpenses = expenses.filter(e => e.date?.startsWith(todayStr))
+  const todayTotal = todayExpenses.reduce((s, e) => s + (parseFloat(e.total_amount) || 0), 0)
+
   const farms = ['All', ...new Set(expenses.map(e => e.farm_name).filter(Boolean))]
 
   return (
@@ -469,10 +484,38 @@ function DashboardPage() {
           <User size={20} className="text-white" />
         </div>
         <h1 className="text-xl font-bold tracking-wide">ફાર્મર વોઇસ</h1>
-        <div className="w-10 h-10 flex items-center justify-center">
-          <Settings size={22} className="text-white/80" />
-        </div>
+        <button onClick={refreshData} className={`w-10 h-10 flex items-center justify-center ${loading ? 'animate-spin' : ''}`}>
+          <RefreshCw size={22} className="text-white/80" />
+        </button>
       </div>
+
+      {/* Today's Summary Highlight (Gujarati) */}
+      {todayExpenses.length > 0 && (
+        <div className="rounded-3xl p-4 bg-emerald-500/20 border border-emerald-500/30 backdrop-blur-md relative overflow-hidden z-10">
+          <div className="flex justify-between items-start mb-2">
+            <div>
+              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">આજની પ્રવૃત્તિ • TODAY</p>
+              <h2 className="text-lg font-bold text-white">તમારી આજની {todayExpenses.length} નોંધો</h2>
+            </div>
+            <div className="bg-emerald-500 p-2 rounded-xl shadow-lg shadow-emerald-500/20">
+              <Check size={20} />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-black text-white">₹{todayTotal.toLocaleString()}</span>
+            <span className="text-xs text-white/60 font-medium italic">કુલ ખર્ચ</span>
+          </div>
+          
+          <div className="flex gap-2 mt-4 overflow-x-auto no-scrollbar pb-1">
+            {todayExpenses.slice(0, 5).map((e, idx) => (
+              <div key={idx} className="flex-shrink-0 bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 text-[11px] font-bold flex items-center gap-2">
+                <span>{e.category === 'Fertilizer' ? '🌾' : e.category === 'Labour' ? '👷' : '⚙️'}</span>
+                {e.item_name || e.category}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Farm Selector (New Option) */}
       <div className="flex gap-2 overflow-x-auto no-scrollbar py-1 relative z-10">
@@ -554,23 +597,92 @@ function DashboardPage() {
         <p className="text-lg font-bold mb-3">તાજેતરની પ્રવૃત્તિ</p>
         
         <div className="space-y-4">
-          {filteredExpenses.length === 0 ? (
+          {sortedExpenses.length === 0 ? (
             <p className="text-white/40 text-sm italic">નોંધ જોવા મળી નથી...</p>
           ) : (
-            filteredExpenses.slice(0, 10).map(e => (
-              <div key={e.id} className="flex justify-between border-b border-white/10 pb-3 items-center">
-                <div className="flex flex-col">
-                  <span className="text-white/70 text-sm font-medium">
-                    {e.date ? new Date(e.date).getDate() : '20'} {e.date ? new Date(e.date).toLocaleString('default', { month: 'short' }) : 'Mar'} - {e.item_name || e.category || 'ખાતર'}
-                  </span>
-                  <span className="text-[10px] text-emerald-400/80 font-bold uppercase">{e.farm_name || 'ખેતર'}</span>
+            sortedExpenses.slice(0, 10).map(e => (
+              <div key={e.id} className="group relative flex justify-between border-b border-white/10 pb-3 items-center hover:bg-white/5 transition-all p-2 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${e.date?.startsWith(todayStr) ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/40'}`}>
+                    {e.category === 'Fertilizer' ? '🌾' : e.category === 'Labour' ? '👷' : '🚜'}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-white/70 text-sm font-semibold">
+                      {e.item_name || e.category || 'વિગત'}
+                    </span>
+                    <span className="text-[10px] text-emerald-400/80 font-bold uppercase tracking-tighter flex items-center gap-1">
+                      {e.farm_name || 'ખેતર'}
+                      {e.date?.startsWith(todayStr) && <span className="bg-emerald-500 text-[8px] text-white px-1 rounded-sm">આજે</span>}
+                    </span>
+                  </div>
                 </div>
-                <span className="font-semibold text-base">₹{parseFloat(e.total_amount).toLocaleString()}</span>
+                
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="font-bold text-base">₹{parseFloat(e.total_amount).toLocaleString()}</p>
+                    <p className="text-[9px] text-white/30 uppercase">{e.date ? new Date(e.date).toLocaleDateString('en-GB') : ''}</p>
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => setEditingExpense(e)} className="p-1.5 bg-white/10 rounded-md text-white/60 hover:text-white">
+                      <Edit3 size={14} />
+                    </button>
+                    <button onClick={() => handleDelete(e.id)} className="p-1.5 bg-red-500/10 rounded-md text-red-400 hover:bg-red-500 hover:text-white">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
               </div>
             ))
           )}
         </div>
       </div>
+
+      {/* Edit Modal (Quick Edit) */}
+      {editingExpense && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-[#12311e] border border-white/10 rounded-3xl w-full max-w-sm p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold">વિગત સુધારો</h2>
+              <button onClick={() => setEditingExpense(null)} className="p-2 bg-white/5 rounded-full"><X size={20}/></button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-white/40 uppercase block mb-1">Items / Activity</label>
+                <input 
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 placeholder:text-white/20 outline-none focus:border-emerald-500"
+                  value={editingExpense.item_name || ''}
+                  onChange={e => setEditingExpense({...editingExpense, item_name: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-white/40 uppercase block mb-1">Total Amount (₹)</label>
+                <input 
+                  type="number"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-2xl font-black text-emerald-400 outline-none focus:border-emerald-500"
+                  value={editingExpense.total_amount || 0}
+                  onChange={e => setEditingExpense({...editingExpense, total_amount: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-white/40 uppercase block mb-1">Notes</label>
+                <textarea 
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 min-h-[80px]"
+                  value={editingExpense.notes || ''}
+                  onChange={e => setEditingExpense({...editingExpense, notes: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <button 
+              onClick={() => handleUpdate(editingExpense)}
+              className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl mt-6 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+            >
+              <Save size={20} /> સાચવો (Update)
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
