@@ -1,0 +1,52 @@
+Take a Note: I will make API key just tell me. you should take reset for this work please
+
+Our Farmer Voice app working fine at cloude version 1.1
+
+But my father is used it face not continue save multiple sentence.
+second and one record save and then again speak without refresh page or back only take 2-3 word and stop speaker.
+
+Step A: The "Hard Reset"
+Step B: The "Ready" State
+
+What happens now	What we need
+Finish sentence -> Save -> Quickly Start	Finish sentence -> Save -> Complete Reset -> Wait 1s -> Start
+The API is "tired" or carries old data.	The API starts a 100% "New" session.
+
+nother solution
+
+1. Code Change: Enable "Continuous" Mode
+If you are using the browser's built-in API, you must explicitly tell it not to stop after one sentence.
+
+JavaScript
+const recognition = new window.webkitSpeechRecognition();
+
+// This is the key! Set this to true.
+recognition.continuous = true; 
+
+// This allows the app to show text as he speaks
+recognition.interimResults = true;
+
+
+2. UI Change: The "Hold to Talk" or "Toggle" Button
+Since the API won't stop automatically now, your father needs a clear way to finish.
+
+The "Big Red Button": When he starts, the button turns Red and says "Done Speaking".
+
+The Logic:
+
+Click Start: recognition.start()
+
+He speaks: He can pause, think, and continue. The mic stays ON.
+
+Click Stop: recognition.stop() — Only now does the app process the full message.
+
+
+Third solution
+. Add a "Manual Stop" Button
+
+2. Adjust the "Silence Timeout" API Settings
+If you are using an API (like Google Speech-to-Text or OpenAI Whisper), there are settings you can change in the code:
+
+Speech End Timeout: You can increase this value. For example, change it from 1 second to 5 seconds.
+
+Continuous Mode: Ensure the API is set to continuous: true. This tells the system to keep listening and transcribing until it is explicitly told to stop.

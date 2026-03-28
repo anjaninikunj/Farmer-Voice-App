@@ -121,8 +121,9 @@ function VoicePage() {
       return
     }
     const recognition = new SpeechRecognition()
-    recognition.lang = 'gu-IN'          // Gujarati
+    recognition.lang = 'gu-IN'
     recognition.interimResults = true
+    recognition.continuous = true // CRITICAL: Listen until manually stopped
     recognition.maxAlternatives = 1
     
     recognition.onstart = () => { 
@@ -133,7 +134,10 @@ function VoicePage() {
     }
     
     recognition.onresult = (e) => {
-      const t = Array.from(e.results).map(r => r[0].transcript).join('')
+      // Collect all fragments (interim + final)
+      const t = Array.from(e.results)
+        .map(r => r[0].transcript)
+        .join('')
       transcriptRef.current = t
       setTranscript(t)
     }
@@ -146,7 +150,8 @@ function VoicePage() {
     
     recognition.onend = () => { 
       setRecording(false); 
-      if (transcriptRef.current.trim().length > 0) {
+      // Only submit if we haven't already moved to processing (e.g. manual stop)
+      if (status !== 'processing' && transcriptRef.current.trim().length > 0) {
         submitTranscript(transcriptRef.current) 
       }
     }
@@ -159,7 +164,13 @@ function VoicePage() {
     if (isCapacitor) {
       try { await CapSpeech.stop() } catch (e) {}
     } else {
-      recognitionRef.current?.stop()
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+      }
+    }
+    // Immediately trigger processing if we have text
+    if (transcript.trim().length > 0) {
+      submitTranscript(transcript)
     }
   }
 
@@ -194,14 +205,18 @@ function VoicePage() {
         }
       }
       
+      // Ensure data is always an array
+      const entries = Array.isArray(data) ? data : [data];
+      
       if (manualFarmId) {
-        data.farm_name = manualFarmId;
-        data.notes = (data.notes || '') + ' (Farm set manually)';
+        entries.forEach(item => {
+          item.farm_name = manualFarmId;
+          item.notes = (item.notes || '') + ' (Farm set manually)';
+        });
       }
       
-      setResult(data)
-
-      setStatus('review') // Wait for user to confirm before saving!
+      setResult(entries)
+      setStatus('review')
     } catch (err) {
       setErrMsg(err.message || String(err))
       setStatus('error')
@@ -211,23 +226,23 @@ function VoicePage() {
   const saveConfirmedRecord = async () => {
     setStatus('saving')
     try {
-      let data = null;
-      if (isCapacitor) {
-        const response = await CapacitorHttp.post({
-          url: `${API_BASE}/api/save-record`,
-          headers: { 'Content-Type': 'application/json' },
-          data: result,
-        });
-        data = response.data;
-        if (response.status !== 200) throw new Error(data.error || 'Save failed')
-      } else {
-        const response = await fetch(`${API_BASE}/api/save-record`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(result)
-        })
-        data = await response.json()
-        if (!response.ok) throw new Error(data.error || 'Save failed')
+      // Save all entries from result array
+      for (const record of result) {
+        if (isCapacitor) {
+          const response = await CapacitorHttp.post({
+            url: `${API_BASE}/api/save-record`,
+            headers: { 'Content-Type': 'application/json' },
+            data: record,
+          });
+          if (response.status !== 200) throw new Error(response.data.error || 'Save failed')
+        } else {
+          const response = await fetch(`${API_BASE}/api/save-record`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(record)
+          })
+          if (!response.ok) throw new Error('Save failed')
+        }
       }
       
       setStatus('success')
@@ -237,7 +252,22 @@ function VoicePage() {
     }
   }
 
-  const reset = () => { setStatus('idle'); setTranscript(''); setResult(null); setErrMsg('') }
+  const reset = () => { 
+    setStatus('idle'); 
+    setTranscript(''); 
+    setResult(null); 
+    setErrMsg('');
+    recognitionRef.current = null;
+  }
+
+  // "Hard Reset" logic for the next recording
+  const startNewRecording = () => {
+    reset();
+    // 1s Delay as requested for "API Reset"
+    setTimeout(() => {
+      startRecording();
+    }, 1000);
+  }
 
   return (
     <div className="flex flex-col gap-6 p-4 pb-24 max-w-md mx-auto">
@@ -268,17 +298,20 @@ function VoicePage() {
       <div className="flex flex-col items-center gap-4 py-6">
         <button
           onClick={recording ? stopRecording : startRecording}
-          className={`w-28 h-28 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg
+          className={`w-28 h-28 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg
             ${recording
-              ? 'bg-red-500 pulse-ring'
+              ? 'bg-red-500 animate-pulse ring-8 ring-red-500/20'
               : 'bg-emerald-500 hover:bg-emerald-400 active:scale-95'}`}
         >
           {recording
-            ? <MicOff size={44} className="text-white" />
+            ? <>
+                <MicOff size={44} className="text-white mb-1" />
+                <span className="text-[10px] font-bold text-white uppercase">DONE</span>
+              </>
             : <Mic size={44} className="text-white" />}
         </button>
-        <p className="text-slate-400 text-sm">
-          {recording ? '🔴 Recording... tap to stop' : 'Tap to speak'}
+        <p className="text-slate-400 text-sm font-medium">
+          {recording ? '🔴 Listening... speak fully' : 'Tap to start recording'}
         </p>
       </div>
 
@@ -300,45 +333,46 @@ function VoicePage() {
 
       {/* Review before save */}
       {status === 'review' && result && (
-        <div className="glass rounded-2xl p-4 space-y-3 border border-blue-500/30">
-          <div className="flex items-center gap-2 mb-1">
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-1 px-1">
             <ClipboardList size={18} className="text-blue-400" />
-            <span className="text-blue-400 font-semibold text-sm">Review AI Entry</span>
+            <span className="text-blue-400 font-semibold text-sm">Review {result.length} Entry Found</span>
           </div>
-          {/* Read-only Beautiful List */}
-          <div className="space-y-1.5 mt-2">
-            {[
-              ['Farm', result.farm_name],
-              ['Category', result.category],
-              ['Activity/Item', result.activity_type || result.item_name],
-              ['Bags', result.bag_count],
-              ['Workers', result.worker_count],
-              ['Rate (₹)', result.rate],
-              ['Total Amount (₹)', result.total_amount],
-            ].map(([label, val]) => {
-              if (val === null || val === undefined) return null;
-              
-              return (
-                <div key={label} className="flex justify-between items-center text-sm pb-1 border-b border-white/5 last:border-0">
-                  <span className="text-slate-400">{label}</span>
-                  <span className="text-emerald-400 font-bold">{val}</span>
+
+          {result.map((item, idx) => (
+            <div key={idx} className="glass rounded-2xl p-4 space-y-3 border border-blue-500/30">
+              <div className="space-y-1.5 mt-2">
+                {[
+                  ['Farm', item.farm_name],
+                  ['Category', item.category],
+                  ['Activity/Item', item.activity_type || item.item_name],
+                  ['Rate (₹)', item.rate],
+                  ['Bags/Workers/Vigha', item.bag_count || item.worker_count || item.vigha_count],
+                  ['Total Amount (₹)', item.total_amount],
+                ].map(([label, val]) => {
+                  if (val === null || val === undefined) return null;
+                  return (
+                    <div key={label} className="flex justify-between items-center text-sm pb-1 border-b border-white/5 last:border-0">
+                      <span className="text-slate-400">{label}</span>
+                      <span className="text-emerald-400 font-bold">{val}</span>
+                    </div>
+                  );
+                })}
+                <div className="pt-2 border-t border-white/10 text-xs text-slate-400">
+                  {item.notes || 'Parsed by AI'}
                 </div>
-              );
-            })}
-            
-            <div className="flex justify-between items-start text-sm pt-2 border-t border-white/10">
-              <span className="text-slate-400">Notes</span>
-              <span className="text-emerald-300/80 text-xs text-right max-w-[60%]">{result.notes || 'Parsed by AI'}</span>
+              </div>
             </div>
-          </div>
+          ))}
+
           <div className="flex gap-3 mt-4">
             <button onClick={reset}
-              className="flex-1 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors">
+              className="flex-1 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold transition-colors">
               Cancel
             </button>
             <button onClick={saveConfirmedRecord}
-              className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors">
-              Confirm & Save
+              className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-500/20">
+              Confirm & Save All
             </button>
           </div>
         </div>
@@ -354,14 +388,19 @@ function VoicePage() {
 
       {/* Success */}
       {status === 'success' && (
-        <div className="glass rounded-2xl p-4 space-y-3 border border-emerald-500/30 text-center">
-          <div className="flex flex-col items-center gap-2 mb-2">
-            <CheckCircle size={40} className="text-emerald-400 mb-2" />
-            <span className="text-emerald-400 font-bold text-lg">Saved to DB!</span>
+        <div className="glass rounded-2xl p-6 space-y-4 border border-emerald-500/30 text-center shadow-xl">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center">
+              <CheckCircle size={40} className="text-emerald-400" />
+            </div>
+            <span className="text-emerald-400 font-bold text-xl">All records saved!</span>
           </div>
-          <button onClick={reset}
-            className="w-full py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-semibold transition-colors shadow-lg">
-            Record Another
+          <button onClick={startNewRecording}
+            className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold transition-all shadow-lg active:scale-95">
+            Record Another (Auto-Reset)
+          </button>
+          <button onClick={() => window.location.reload()} className="text-slate-500 text-xs">
+            Having trouble? Refresh Page
           </button>
         </div>
       )}

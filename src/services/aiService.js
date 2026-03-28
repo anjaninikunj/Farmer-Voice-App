@@ -8,42 +8,44 @@ You are a highly accurate Agricultural Data Parser for Gujarati farmers.
 Your task is to extract farm expense and fertilizer usage details from transcribed Gujarati/Hinglish speech.
 
 OUTPUT FORMAT:
-Always return a JSON object with this structure:
-{
-  "farm_name": string | null,
-  "category": "Fertilizer" | "Labour" | "Purchase" | "Machine",
-  "activity_type": "Planting" | "Weeding" | "Harvesting" | "Irrigation" | "Spraying" | "Purchase" | null,
-  "item_name": "Urea" | "NPK" | "DAP" | "Potash" | "Organic" | "Medicine" | "Seed" | "NPK, Urea" | null,
-  "payout_model": "Per-Vigha" | "Per-Person" | "Per-Pump" | "Per-Bag" | "Flat-Rate",
-  "description": string,
-  "worker_count": number | null,
-  "vigha_count": number | null,
-  "pump_count": number | null,
-  "bag_count": number | null,
-  "rate": number | null,
-  "unit": string | null,
-  "total_amount": number | null,
-  "notes": string | null,
-  "date": string (YYYY-MM-DD)
-}
+Always return a JSON ARRAY of objects. Even if there is only one entry, return it inside an array:
+[
+  {
+    "farm_name": string | null,
+    "category": "Fertilizer" | "Labour" | "Purchase" | "Machine" | "Irrigation" | "Seeds",
+    "activity_type": "Planting" | "Weeding" | "Harvesting" | "Irrigation" | "Spraying" | "Purchase" | "Ploughing" | null,
+    "item_name": "Urea" | "NPK" | "DAP" | "Potash" | "Organic" | "Medicine" | "Seed" | "Diesel" | null,
+    "payout_model": "Per-Vigha" | "Per-Person" | "Per-Pump" | "Per-Bag" | "Flat-Rate",
+    "description": string,
+    "worker_count": number | null,
+    "vigha_count": number | null,
+    "pump_count": number | null,
+    "bag_count": number | null,
+    "rate": number | null,
+    "unit": string | null,
+    "total_amount": number | null,
+    "notes": string | null,
+    "date": string (YYYY-MM-DD)
+  }
+]
+
+MULTI-ENTRY DETECTION:
+- If the user mentions multiple distinct expenses (e.g. "1000 for diesel and 500 for driver"), return TWO objects in the array.
+- If they mention different farms for different items, separate them.
 
 PAYOUT CALCULATION RULES:
-1. PER-VIGHA: For 'Transplanting (Ropari)' or 'Harvesting Machine', use (vigha_count * rate).
-2. PER-PERSON: For 'Weeding (Nidamar)', 'Watering (Pani)', or general Labour ('majur', 'મજૂર'), use (worker_count * rate). 
-   - CRITICAL RULE: If a daily labourer wage (rate) is NOT directly mentioned, ALWAYS default "rate" to 200 and calculate the "total_amount".
-3. PER-PUMP: If 'Pump' is mentioned for spreading fertilizer/medicine, use (pump_count * rate).
-4. PER-BAG: For fertilizer application (e.g. Urea, NPK) by bag, use (bag_count * rate).
-   - EXPLICIT RULE: If the user says "5 bags at 1200", set "bag_count" to 5 and "rate" to 1200. "total_amount" MUST be 6000.
+1. PER-VIGHA: For 'Transplanting (Ropari)', 'Gaval (Sowing)', or 'Harvesting Machine', use (vigha_count * rate).
+2. PER-PERSON: For 'Weeding (Nidamar)', 'Watering (Pani)', or general Labour, use (worker_count * rate). 
+   - RULE: If a daily labourer wage is NOT mentioned, default "rate" to 200.
+3. PER-PUMP: If 'Pump' is mentioned for spraying, use (pump_count * rate).
+4. PER-BAG: For fertilizer application by bag, use (bag_count * rate).
 
-SPECIFIC GUJARATI CONTEXT & NUMBER TRANSLATION:
-- Gujarati numbers: એક(1), બે(2), ત્રણ(3), ચાર(4), પાંચ(5), છ(6), સાત(7), આઠ(8), નવ(9), દસ(10).
-- If the phrase says "ચાર ચાર ગુણ" (four four bags) of two items (like NPK and Urea), the total "bag_count" is 8 (4 of each). 
-- If the phrase says "ચાર ગુણ" (four bags), "bag_count" is 4.
-- 'ગુણ' (gun) or 'થેલી' (theli) or 'બોરી' (bori) = bags.
-- Recognize 'Jadeve Kshetra', 'Jadavvare', 'Jadavvare khetar', 'Jadevara' as 'Jada Farm'.
-- Recognize 'Nidamar' as 'Weeding'.
-- Recognize 'Majur' or 'Majuro' or 'મજૂર' as 'worker_count'.
-- Ensure category is NEVER null. If multiple activities, use 'Fertilizer' as primary if fertilizer is applied, but ensure 'worker_count' and 'total_amount' for labor is strictly captured in the same payload.
+SPECIFIC GUJARATI CONTEXT:
+- Recognize 'Gaval' as 'Ploughing/Sowing'.
+- 'Diesel' should be category 'Machine', 'item_name' 'Diesel', 'payout_model' 'Flat-Rate'.
+- 'Driver' labor should be category 'Labour'.
+- Recognize 'Nikul' as 'Nikunj Farm'.
+- Date: If not mentioned, use 'today'.
 `;
 
 async function parseVoiceToJSON(text) {
@@ -51,7 +53,7 @@ async function parseVoiceToJSON(text) {
     throw new Error("Missing GEMINI_API_KEY in environment");
   }
 
-const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
   
   try {
     const response = await axios.post(geminiUrl, {
@@ -65,26 +67,29 @@ const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemin
     const rawResponse = response.data.candidates[0].content.parts[0].text;
     fs.appendFileSync('ai_debug.log', `[SUCCESS] Input: ${text}\nResponse: ${rawResponse}\n\n`);
     const jsonString = rawResponse.replace(/```json|```/g, '').trim();
-    const structuredData = JSON.parse(jsonString);
+    let structuredData = JSON.parse(jsonString);
 
-  // Fallback category if AI fails
-  if (!structuredData.category) {
-    if (text.includes('majur') || text.includes('મજુર')) structuredData.category = 'Labour';
-    else if (text.includes('khatar') || text.includes('urea')) structuredData.category = 'Fertilizer';
-    else if (text.includes('seed') || text.includes('biaran')) structuredData.category = 'Seeds';
-    else if (text.includes('pani') || text.includes('water')) structuredData.category = 'Irrigation';
-    else structuredData.category = 'Other';
-  }
+    if (!Array.isArray(structuredData)) structuredData = [structuredData];
 
-  // Date Logic
-  if (!structuredData.date || structuredData.date === 'today') {
-    structuredData.date = new Date().toISOString().split('T')[0];
-  } else if (structuredData.date === 'yesterday') {
-    const d = new Date(); d.setDate(d.getDate() - 1);
-    structuredData.date = d.toISOString().split('T')[0];
-  }
+    return structuredData.map(item => {
+      // Fallback category if AI fails
+      if (!item.category) {
+        if (text.includes('majur') || text.includes('મજુર')) item.category = 'Labour';
+        else if (text.includes('khatar') || text.includes('urea')) item.category = 'Fertilizer';
+        else if (text.includes('seed') || text.includes('biaran')) item.category = 'Seeds';
+        else if (text.includes('pani') || text.includes('water')) item.category = 'Irrigation';
+        else item.category = 'Other';
+      }
 
-  return structuredData;
+      // Date Logic
+      if (!item.date || item.date === 'today') {
+        item.date = new Date().toISOString().split('T')[0];
+      } else if (item.date === 'yesterday') {
+        const d = new Date(); d.setDate(d.getDate() - 1);
+        item.date = d.toISOString().split('T')[0];
+      }
+      return item;
+    });
   }
   catch (error) {
     const errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
@@ -278,7 +283,7 @@ const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemin
         else data.total_amount = data.rate;
     }
 
-    return data;
+    return [data];
   }
 }
 
