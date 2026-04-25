@@ -2,8 +2,7 @@ name: Supabase Multi-App Keep Alive
 
 on:
   schedule:
-    # Runs at 00:00 every Monday and Thursday
-    - cron: '0 0 * * 1,4'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,12 +11,14 @@ jobs:
     steps:
       - name: Ping Bean Tracker App
         run: |
-          curl -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+          curl -s -o /dev/null -w "%{http_code}" \
+          "${{ secrets.SUPABASE_URL }}/rest/v1/BeanSales?select=Id&limit=1" \
           -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
           -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}"
-          
+
       - name: Ping Farmer Voice Tracker
         run: |
-          curl -X GET "${{ secrets.FARMER_URL }}/rest/v1/" \
+          curl -s -o /dev/null -w "%{http_code}" \
+          "${{ secrets.FARMER_URL }}/rest/v1/expense?select=id&limit=1" \
           -H "apikey: ${{ secrets.FARMER_KEY }}" \
           -H "Authorization: Bearer ${{ secrets.FARMER_KEY }}"
